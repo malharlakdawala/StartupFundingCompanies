@@ -1,0 +1,602 @@
+{
+  "name": "Startup Funding",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -128,
+        -256
+      ],
+      "id": "fb901663-602d-4423-a8c4-0a09c60ceb13",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://inc42.com/feed/",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        -256
+      ],
+      "id": "e6e1c5ff-724a-4a97-85e8-0e2023a5067c",
+      "name": "RSS Read"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "list",
+          "cachedResultName": "GPT-4"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=### Role:\nYou are a Financial Data Extractor specialized in the Indian Startup Ecosystem.\n\n### Objective:\nIdentify and extract specific Indian startup funding events from the provided text. Focus on capturing clean data points that can be used for secondary legal research.\n\n### Extraction Rules:\n1. **Scope:** ONLY extract Indian startups. Ignore global entities (e.g., OpenAI, Anthropic) unless the news specifically discusses an Indian domestic fundraise.\n2. **Requirement:** Only extract events where a funding round or amount is explicitly mentioned.\n3. **Cleaning:** Remove any decorative text from the `brand_name` (e.g., use \"Zepto\" instead of \"Zepto (Kiranakart)\").\n4. **Empty State:** If no valid Indian funding news is found, return exactly: []\n\n### Formatting Rules:\n- **funding_amount:** Do NOT return just numbers. Return the amount WITH the denomination (e.g., \"10 Cr\", \"25 Mn\", \"1.2 Bn\"). \n- **currency:** Specify the currency (e.g., \"INR\", \"USD\").\n- If the news says \"₹10 Crore\", return \"10 Cr\" in funding_amount.\n- If the news says \"$5 Million\", return \"5 Mn\" in funding_amount.\n### Output Schema (Strict JSON Only):\n[\n  {\n    \"brand_name\": \"Common name of the startup\",\n    \"funding_amount\": \"The number value\",\n    \"currency\": \"INR, USD, etc.\",\n    \"funding_round\": \"Seed, Series A, Pre-IPO, etc.\",\n    \"investors\": [\"Investor 1\", \"Investor 2\"],\n    \"context_summary\": \"High-level summary of the news including why this is a valid lead (e.g., 'Company is expanding to South India').\"\n  }\n]\n\n### Input Text:\n{{ $json.ai_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        768,
+        -256
+      ],
+      "id": "23ebc551-2fa5-4ef5-9da9-8ef92d55ab19",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "aaPJw0KtTRqPNi1f",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "90ea3071-2b88-4c54-8eb1-d2c323d5979e",
+              "name": "ai_text",
+              "value": "={{ ($json[\"content:encodedSnippet\"] || $json.contentSnippet || $json.title).slice(0, 4000) }}",
+              "type": "string"
+            },
+            {
+              "id": "b4084a2e-af7d-4eeb-a2d4-b9f7fb317da7",
+              "name": "article_title",
+              "value": "={{$json.title}}",
+              "type": "string"
+            },
+            {
+              "id": "95633e7e-128e-47aa-a56d-b98b91b3db20",
+              "name": "article_url",
+              "value": "={{$json.link}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        -256
+      ],
+      "id": "dce6509e-c4d8-40fe-8dc8-9493e4e42592",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "541a50ef-072b-4077-9b90-2017f33b61b3",
+              "leftValue": "={{ $json.output[0].content[0].text.trim() === \"[]\" || $json.output[0].content[0].text.replace(/\\s/g, \"\") === \"[]\" }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1168,
+        -256
+      ],
+      "id": "a380712e-832d-4899-acf1-3d8ea6e15092",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all incoming items\nconst items = $input.all();\nconst cleaned = [];\n\nfor (const item of items) {\n  // Use bracket notation to access the specific key name from the AI node\n  const jsonString = item.json[\"output[0].content[0].text\"];\n\n  if (!jsonString) continue;\n\n  try {\n    // 1. Clean the string in case the AI added Markdown code fences (```json ... ```)\n    const rawJson = jsonString.replace(/```json/g, \"\").replace(/```/g, \"\").trim();\n    \n    const parsedArray = JSON.parse(rawJson);\n\n    // Ensure we are dealing with an array\n    const dataToProcess = Array.isArray(parsedArray) ? parsedArray : [parsedArray];\n\n    for (const entry of dataToProcess) {\n      cleaned.push({\n        json: {\n          company_name: entry.legal_name || \"\",\n          brand_name: entry.brand_name || \"\",\n          funding_amount: entry.funding_amount || \"\",\n          currency: entry.currency || \"\",\n          funding_round: entry.funding_round || \"\",\n          investors: Array.isArray(entry.investors) ? entry.investors : [],\n          cin_number: entry.cin_number || \"Not Found\",\n          context_summary: entry.context_summary || \"No summary provided.\"\n        }\n      });\n    }\n  } catch (error) {\n    // Log the error to the console for debugging\n  }\n}\nreturn cleaned;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        -272
+      ],
+      "id": "661dfe7f-389d-46b7-a5dc-f85ad11ceac8",
+      "name": "Code in JavaScript",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output[0].content[0].text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1408,
+        -272
+      ],
+      "id": "a3237a70-c741-4e75-a416-4b3b4cc4a069",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        -256
+      ],
+      "id": "d5dc0fa0-8840-411c-8070-c20cf5646fed",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hook.eu1.make.com/lxhvazyq1dgrycz326u5a6nreuf9myqw",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"brand_name\": $json.brand_name,\n  \"legal_name\": $json.Company_name,\n  \"cin\": $json.CIN_And_Company_info,\n  \"funding_amount\": `${$json.funding_amount} ${$json.currency}`,\n  \"funding_round\": $json.funding_round,\n  \"investors\": $json.investors,\n  \"context_summary\": $json.context_summary,\n  \"roles\": [\"Founder\", \"Co-Founder\", \"CEO\", \"CTO\", \"COO\"],\n  \"country\": \"India\"\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2272,
+        -272
+      ],
+      "id": "d8f3a3d0-84f3-4411-8b9a-644e18490e9c",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.brand_name }} startup India legal name and CIN Zauba Corp"
+            },
+            {
+              "name": "api_key",
+              "value": "effee65914d7259290a35a1bc17980167f2d8f77f438db5d3bf0cd753dc9080b"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1824,
+        -272
+      ],
+      "id": "37a3941f-80f7-4010-90da-e1b251d04a72",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "09750f79-adc4-4595-b7b9-d13645c71cac",
+              "name": "brand_name",
+              "value": "={{ $('Code in JavaScript').item.json.brand_name }}",
+              "type": "string"
+            },
+            {
+              "id": "75433b04-e3eb-45a5-a650-fbc719ef37da",
+              "name": "funding_amount",
+              "value": "={{ $('Code in JavaScript').item.json.funding_amount }}",
+              "type": "string"
+            },
+            {
+              "id": "99d0423f-2073-4194-95be-0c0f40ef1ce3",
+              "name": "currency",
+              "value": "={{ $('Code in JavaScript').item.json.currency }}",
+              "type": "string"
+            },
+            {
+              "id": "7985f7fb-ae0d-4640-8fe1-a1b711a7278e",
+              "name": "funding_round",
+              "value": "={{ $('Code in JavaScript').item.json.funding_round }}",
+              "type": "string"
+            },
+            {
+              "id": "181345ba-72bb-46b7-bde4-f1ca830b2adb",
+              "name": "investors",
+              "value": "={{ $('Code in JavaScript').item.json.investors }}",
+              "type": "array"
+            },
+            {
+              "id": "fee50bb9-90c0-48ed-94c9-a5e74f7d694a",
+              "name": "context_summary",
+              "value": "={{ $('Code in JavaScript').item.json.context_summary }}",
+              "type": "string"
+            },
+            {
+              "id": "c052110a-9fac-4a55-bcad-5467c1398de2",
+              "name": "Company_name",
+              "value": "={{ $json.organic_results[0].title }}",
+              "type": "string"
+            },
+            {
+              "id": "854d2515-b9bd-48c5-bb44-fc6abc0ac150",
+              "name": "CIN_And_Company_info",
+              "value": "={{ $json.organic_results[0].snippet }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2032,
+        -272
+      ],
+      "id": "6b3ce3db-85b1-4026-8535-52e787990a19",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "content": "# Funding News Agent\n\n## Looks out for New Funding related News",
+        "height": 448,
+        "width": 704
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -256,
+        -512
+      ],
+      "typeVersion": 1,
+      "id": "8970a122-c0b5-4206-9fa8-1726d7f9b319",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Corporate Identify Agent\n\n## Checks whether the Company is registered in India, and finds its CIN",
+        "height": 448,
+        "width": 1088,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        -512
+      ],
+      "typeVersion": 1,
+      "id": "ee2f441e-8dff-4974-bc33-864d641da635",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Deep Enrichment Agent\n\n## Finds the founders/promoters in the company and gets their Email/Phone",
+        "height": 448,
+        "width": 912,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1600,
+        -512
+      ],
+      "typeVersion": 1,
+      "id": "6b826a67-bc6b-4a3a-854e-cdd4f5f9f024",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# DBS Automation Workflow\n\n## This automation will do a direct outreach to founders/promoters of newly funded startups in India",
+        "width": 672,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        640,
+        -768
+      ],
+      "typeVersion": 1,
+      "id": "5ea3f2fd-5219-41de-b03a-3fd3e3e8a181",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "fromEmail": "malharlakdawala@gmail.com",
+        "toEmail": "malharlakdawala@gmail.com",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2816,
+        -272
+      ],
+      "id": "9a10b2ce-1e53-4172-b2e3-3d48f9eb55be",
+      "name": "Send an Email",
+      "webhookId": "feceae7f-8e69-460d-8160-1e96ccd5a34b",
+      "credentials": {
+        "smtp": {
+          "id": "5qOh32KYH8Ps0QGM",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "list",
+          "cachedResultName": "GPT-4"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=### Role:\nYou are a Financial Data Extractor specialized in the Indian Startup Ecosystem.\n\n### Objective:\nIdentify and extract specific Indian startup funding events from the provided text. Focus on capturing clean data points that can be used for secondary legal research.\n\n### Extraction Rules:\n1. **Scope:** ONLY extract Indian startups. Ignore global entities (e.g., OpenAI, Anthropic) unless the news specifically discusses an Indian domestic fundraise.\n2. **Requirement:** Only extract events where a funding round or amount is explicitly mentioned.\n3. **Cleaning:** Remove any decorative text from the `brand_name` (e.g., use \"Zepto\" instead of \"Zepto (Kiranakart)\").\n4. **Empty State:** If no valid Indian funding news is found, return exactly: []\n\n### Formatting Rules:\n- **funding_amount:** Do NOT return just numbers. Return the amount WITH the denomination (e.g., \"10 Cr\", \"25 Mn\", \"1.2 Bn\"). \n- **currency:** Specify the currency (e.g., \"INR\", \"USD\").\n- If the news says \"₹10 Crore\", return \"10 Cr\" in funding_amount.\n- If the news says \"$5 Million\", return \"5 Mn\" in funding_amount.\n### Output Schema (Strict JSON Only):\n[\n  {\n    \"brand_name\": \"Common name of the startup\",\n    \"funding_amount\": \"The number value\",\n    \"currency\": \"INR, USD, etc.\",\n    \"funding_round\": \"Seed, Series A, Pre-IPO, etc.\",\n    \"investors\": [\"Investor 1\", \"Investor 2\"],\n    \"context_summary\": \"High-level summary of the news including why this is a valid lead (e.g., 'Company is expanding to South India').\"\n  }\n]\n\n### Input Text:\n{{ $json.ai_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        816,
+        272
+      ],
+      "id": "089829bb-a6e5-440b-8cec-a50711abe3f1",
+      "name": "Message a model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "aaPJw0KtTRqPNi1f",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# Finance Research Agent\n\n## Checks whether the Company is above a certain Revenue point",
+        "height": 448,
+        "width": 1088,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        48
+      ],
+      "typeVersion": 1,
+      "id": "510ff759-973d-462c-9768-e8fdde097698",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "# Email Send to Sales Team\n\n## Once all the checks are done, the lead information directly goes to Sales agent\nExample:\nBounce, a 2 wheeler EV organization, raised $ 5 million from existing investors.\nLegal Name: Zunik Smart Mobility Solutions Private Limited\nCIN: U74999KA2018PTC116260\nLocation: Bangalore\n",
+        "height": 448,
+        "width": 912,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2528,
+        -512
+      ],
+      "typeVersion": 1,
+      "id": "32531415-fc45-4c3c-a7cf-4b5024f9e7f8",
+      "name": "Sticky Note5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Read": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Message a model1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "27dd0d26-b568-4540-af40-43f3e900cc4c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c97b2d5c6888318b59160b6e7fbe2ceaaa378fa4855aaa7dc838aef7bd125a6f"
+  },
+  "id": "QawOtFT2-PmeOY0dqj61o",
+  "tags": []
+}
